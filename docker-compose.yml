@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    container_name: weshare-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: advantest
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: weshare_data_curator
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata: {}

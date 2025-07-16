@@ -1,0 +1,26 @@
+[project]
+name = "weshare-ctx-sort"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+dependencies = [
+    "beautifulsoup4>=4.13.4",
+    "markdownify>=1.1.0",
+    "pytest>=8.4.1",
+    "requests>=2.32.4",
+    "selenium>=4.34.2",
+    "tqdm>=4.67.1",
+]
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+requires-python = ">=3.13"
+dependencies = [
+    "beautifulsoup4>=4.13.4",
+    "logging>=0.4.9.6",
+    "psycopg2-binary>=2.9.10",
+    "python-dotenv>=1.1.1",
+    "requests>=2.32.4",
+    "sqlalchemy>=2.0.41",
+]
+
+

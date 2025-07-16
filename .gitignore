@@ -1,0 +1,18 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# scraped file directories
+hierarchical_output/
+single_url_output/
+test_*/
+*_output/
+scraped_content/
+
+# Virtual environments
+.venv
+.env
