@@ -1,9 +1,12 @@
 import os
 import time
 import json
+import re
 from pathlib import Path
+from datetime import datetime
 from urllib.parse import urljoin, urlparse
 from typing import List, Dict, Optional
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -281,12 +284,77 @@ class WeShareMSSOScraper:
         
         return item_data
 
+    def _extract_last_modified_with_timeout(self, content: str, timeout: float = 3.0) -> Optional[Dict[str, str]]:
+        """
+        Extract last modified information with a timeout to prevent hanging.
+        
+        Args:
+            content: HTML content to search
+            timeout: Maximum seconds to spend searching
+            
+        Returns:
+            Dict with last modified info or None if not found/timeout
+        """
+        def extract_last_modified(html_content: str) -> Optional[Dict[str, str]]:
+            # Pattern for "last modified by [user] on [date]" from WeShare
+            patterns = [
+                r'last\s+modified\s+by\s+([^,]+?)\s+on\s+([^,\n<]+)',
+                r'last\s+modified\s+by\s+<[^>]+>([^<]+)</[^>]+>\s+on\s+([^,\n<]+)',
+                # Additional patterns for flexibility
+                r'modified\s+by\s+([^,]+?)\s+on\s+([^,\n<]+)',
+                r'updated\s+by\s+([^,]+?)\s+on\s+([^,\n<]+)'
+            ]
+            
+            for pattern in patterns:
+                matches = re.finditer(pattern, html_content, re.IGNORECASE)
+                for match in matches:
+                    groups = match.groups()
+                    if len(groups) == 2:
+                        user = groups[0].strip()
+                        # Clean up user - remove any HTML tags if present
+                        user = re.sub(r'<[^>]+>', '', user)
+                        user = user.strip()
+                        
+                        date = groups[1].strip()
+                        # Clean up date - remove any HTML tags if present
+                        date = re.sub(r'<[^>]+>', '', date)
+                        date = date.strip()
+                        
+                        return {
+                            'user': user,
+                            'date': date,
+                            'raw_match': match.group(0)
+                        }
+            
+            # Try to find in meta tags
+            meta_match = re.search(r'<meta\s+(?:name|property)=["\']last-modified["\']\s+content=["\'](.*?)["\']\s*/?>',
+                                   html_content, re.IGNORECASE)
+            if meta_match:
+                return {
+                    'date': meta_match.group(1),
+                    'source': 'meta_tag'
+                }
+            
+            return None
+        
+        # Use ThreadPoolExecutor for timeout
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(extract_last_modified, content)
+            try:
+                result = future.result(timeout=timeout)
+                return result
+            except FutureTimeoutError:
+                print(f"  Timeout after {timeout} seconds searching for last modified - continuing...")
+                return None
+            except Exception as e:
+                print(f"  Error extracting last modified: {e}")
+                return None
+
     def _scrape_single_page(self, href: str, title: str) -> Optional[Dict[str, str]]:
         try:
             # Navigate to the page
             self.driver.get(href)
             
-           
             breadcrumbs = []
             try:
                 breadcrumb_elements = self.driver.find_elements(  # Get breadcrumb path
@@ -319,14 +387,25 @@ class WeShareMSSOScraper:
                 # fallback to regular page content
                 content = self.driver.page_source
             
-            return {
+            # Extract last modified information with timeout
+            last_modified_info = self._extract_last_modified_with_timeout(content, timeout=3.0)
+            
+            result = {
                 'id': f"{self.current_id:04d}",
                 'url': href,
                 'title': title,
                 'content': content,
                 'breadcrumbs': breadcrumb_path,
-                'timestamp': time.time()
-            } #type: ignore
+                'timestamp': time.time(),
+                'formatted_date': datetime.now().strftime('%m/%d/%y')
+            }
+            
+            # Add last modified info if found
+            if last_modified_info:
+                result['last_modified'] = last_modified_info
+                print(f"  Found last modified: {last_modified_info.get('date', 'Unknown date')} by {last_modified_info.get('user', 'Unknown user')}")
+            
+            return result
             
         except Exception as e:
             print(f"Error scraping single page {title}: {e}")
@@ -371,6 +450,12 @@ class WeShareMSSOScraper:
                     'content': self.driver.page_source,
                     'timestamp': time.time()
                 }
+                
+                # Extract last modified information
+                last_modified_info = self._extract_last_modified_with_timeout(content['content'], timeout=3.0)
+                if last_modified_info:
+                    content['last_modified'] = last_modified_info
+                    print(f"  Found last modified: {last_modified_info.get('date', 'Unknown date')} by {last_modified_info.get('user', 'Unknown user')}")
                 
                 # Save files
                 filename = f"page_{i:04d}_{self._clean_filename(content['title'])}.html"
