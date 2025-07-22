@@ -122,17 +122,17 @@ def query_contextual_agent(question: str, include_optional_fields: bool = False)
         response.raise_for_status()
 
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
     # Query the agent
-    response_data = query_contextual_agent("""
-                                           SYSTEM PROMPT:
-                                           You are to give a score from 0 to 1 that represents how related the prompt is to anything V93K/ST8
-                                           PROMPT:
-                                           93k_Platform_Principles""")
+    # response_data = query_contextual_agent("""
+                                           # SYSTEM PROMPT:
+                                           # You are to give a score from 0 to 1 that represents how related the prompt is to anything V93K/ST8
+                                           # PROMPT:
+                                           # 93k_Platform_Principles""")
     
-    if response_data:
+    # if response_data:
         # Print only the message content 
-        print(response_data["message"]["content"])
+        # print(response_data["message"]["content"]) 
         
         # The full response_data dictionary contains all structured information:
         # - response_data["conversation_id"]
@@ -147,3 +147,4 @@ if __name__ == "__main__":
         # print(f"\nConversation ID: {response_data['conversation_id']}")
         # print(f"Number of retrieved documents: {len(response_data['retrieval_contents'])}")
         # print(f"Top document: {response_data['retrieval_contents'][0]['doc_name'] if response_data['retrieval_contents'] else 'None'}")
+        
