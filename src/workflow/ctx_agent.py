@@ -73,13 +73,6 @@ def parse_contextual_response(response_json: Dict[str, Any]) -> Dict[str, Any]:
     return response_data
 
 def query_contextual_agent(question: str, include_optional_fields: bool = False):
-    """
-    Query the Contextual AI agent
-    
-    Args:
-        question: The question to ask
-        include_optional_fields: Whether to include optional fields in the request
-    """
     # Basic required structure
     payload = {
         "messages": [
@@ -131,7 +124,11 @@ def query_contextual_agent(question: str, include_optional_fields: bool = False)
 
 if __name__ == "__main__":
     # Query the agent
-    response_data = query_contextual_agent("What is V93K in short terms?")
+    response_data = query_contextual_agent("""
+                                           SYSTEM PROMPT:
+                                           You are to give a score from 0 to 1 that represents how related the prompt is to anything V93K/ST8
+                                           PROMPT:
+                                           93k_Platform_Principles""")
     
     if response_data:
         # Print only the message content 
