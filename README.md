@@ -56,5 +56,5 @@ cp .env.example .env
 # Edit .env with your credentials
 
 # Test the system
-uv run python tests/test_scraper.py
+uv run python runnables/<file>
 ```
