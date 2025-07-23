@@ -25,17 +25,20 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 ```
 weshare-ctx-sort/
+├── runnables/
+│   │   ├── run_ctx_agent.py          # Contextual Agent Pipeline
+│   │   └── run_scraper.py            # Scraper Pipeline
 ├── src/
 │   ├── workflow/
 │   │   ├── sso_weshare_scraper.py    # Microsoft SSO scraper
 │   │   └── html_to_markdown.py       # HTML to Markdown converter
-│   │   └── ...
+│   │   ├── ctx_agent.py              # Contextual Agent Query logic
+
 │   └── db/
 │       ├── database.py               # Database operations
 │       └── models.py                 # SQLAlchemy models
 │   │   └── ...
 ├── tests/
-│   ├── test_scraper.py              # Scraper testing
 │   └── test_database.py             # Database testing
 │   │   └── ...
 ├── .env                             # Environment variables
