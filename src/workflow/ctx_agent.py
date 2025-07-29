@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import requests
 from pathlib import Path
 from dotenv import load_dotenv
@@ -8,7 +9,7 @@ from typing import Dict, List, Any, Optional
 
 # Load environment variables
 load_dotenv()
-contextual_agent_id = os.getenv("AGENT_ID")  # V93K ST8 CodeGenie A ID
+contextual_agent_id = os.getenv("CODEGENIE_A_ID") # interchangable agent ID 
 contextual_api_key = os.getenv("CONTEXTUAL_API_KEY")  # V93K ST8 CodeGenie A API Key
 BASE_URL = "https://api.app.contextual.ai/v1"
 
@@ -122,27 +123,55 @@ def query_contextual_agent(question: str, include_optional_fields: bool = False)
         response.raise_for_status()
 
 
-# if __name__ == "__main__":
+if __name__ == "__main__":
     # Query the agent
-    # response_data = query_contextual_agent("""
-                                           # SYSTEM PROMPT:
-                                           # You are to give a score from 0 to 1 that represents how related the prompt is to anything V93K/ST8
-                                           # PROMPT:
-                                           # 93k_Platform_Principles""")
+    print("Starting...")
+    try:
+        metadata_path = 'hierarchical_output/metadata.json'
+        with open(metadata_path, 'r') as f:
+            metadata = json.load(f)
+    except:
+        pass
+    page = metadata[0]
+    # print(page) # type: ignore
     
-    # if response_data:
-        # Print only the message content 
-        # print(response_data["message"]["content"]) 
+    page_title = page['title'] #type: ignore
+    page_id = page['id'] #type: ignore
+    page_date = page['formatted_date'] if 'formatted_date' in page else '' #type: ignore
+    page_content = page['content'] if 'content' in page else '' #type: ignore
+    page_breadcrumbs = page['breadcrumbs'] if 'breadcrumbs' in page else [] #type: ignore
+    
+    
+    response_data = query_contextual_agent(f"""
+                                               
+                                               SYSTEM PROMPT:
+                                               You are to give a score from 0 to 1 for the following. Make sure your score is as accurate as you can make it to be.
+                                               
+                                                  1. How relevant the PAGE INFO is to anything V93/St8
+                                                  2. How up to date the information is.
+                                                  
+                                                  
+                                                Naturally, if the content you are prompted with is newer/more current than your knowledge cutoff date, then the currency score should be 1.0.
+                                               
+                                                ONLY REUTRN: You will return a JSON OBJECT with the following structure:
+                                                  {{
+                                                    "relevance_score": <float>,
+                                                    "currency_score": <float>
+                                                    }}
+                                                .
+                                               NOTES: The date will be given to you in the format of MM/DD/YY. Do not return any other information, just the JSON object.
+                                               -----
+                                               PAGE INFO/PROMPT: Page Title: {page_title}, 
+                                                                 Page Content: {page_content}, 
+                                                                 Page Breadcrumbs: {page_breadcrumbs}, 
+                                                                 Page Date: {page_date}""")
         
-        # The full response_data dictionary contains all structured information:
-        # - response_data["conversation_id"]
-        # - response_data["message_id"]
-        # - response_data["message"]["content"]
-        # - response_data["message"]["role"]
-        # - response_data["retrieval_contents"] - list of retrieved documents
-        # - response_data["attributions"] - list of attribution ranges
-        # - response_data["groundedness_score"] - groundedness information
         
+    
+    if response_data:
+        parsed_response = parse_contextual_response(response_data)
+        print(parsed_response['message']['content']) if parsed_response else None
+    
         # Example: Print additional information if needed
         # print(f"\nConversation ID: {response_data['conversation_id']}")
         # print(f"Number of retrieved documents: {len(response_data['retrieval_contents'])}")
