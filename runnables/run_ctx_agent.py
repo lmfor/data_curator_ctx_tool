@@ -34,7 +34,9 @@ def call_contextual_agent(metadata: Dict[str, Any]) -> Dict[Any, Any]: # type: i
     
     
     # Multiquery (Lots of prompts be careful.)
+    # for page in metadata:
     for page in metadata:
+        # page = metadata[i] #type: ignore
         page_title = page['title'] #type: ignore
         page_id = page['id'] #type: ignore
         page_date = page['formatted_date'] if 'formatted_date' in page else '' #type: ignore
@@ -42,6 +44,7 @@ def call_contextual_agent(metadata: Dict[str, Any]) -> Dict[Any, Any]: # type: i
         page_breadcrumbs = page['breadcrumbs'] if 'breadcrumbs' in page else [] #type: ignore
         # print(f"Processing page: {page_title} (ID: {page_id})") #type: ignore
         
+        print("Querying agent for page:", page_title) #type: ignore
         response_data = query_contextual_agent(f"""
                                                
                                                SYSTEM PROMPT:
@@ -67,10 +70,61 @@ def call_contextual_agent(metadata: Dict[str, Any]) -> Dict[Any, Any]: # type: i
                                                                  Page Date: {page_date}""")
         
         ### LOGIC TO HANDLE RESPONSE & INSERT INTO DB IF NEEDED ###
-        
         parsed_response = parse_contextual_response(response_data) if response_data else None
-        return {page_id,parsed_response['message']['content']} if parsed_response else {} #type: ignore
+        json_response = parsed_response['message']['content'] if parsed_response else None
+        
+        # print(json_response) # type: ignore
+        #json_str = json_response.strip('```json\n').strip('```') # type:ignore this line is for CODEGENIE TDC 
+        #data = json.loads(json_str) #type: ignore # this line is for CODEGENIE TDC
+        data = json.loads(json_response) # type: ignore  # this line is for CODEGENIE A
+        relevance_score = data["relevance_score"]
+        currency_score = data["currency_score"]
+        
+        # print(f"Relevance Score: {relevance_score}, Currency Score: {currency_score}") #type: ignore
+        
+        # relevance_score = parsed_response['relevance_score'] if parsed_response else None
+        # currency_score = parsed_response['currency_score'] if parsed_response else None
+        
+        if relevance_score is not None and currency_score is not None:
+            
+            if(relevance_score > 0.80 and currency_score == 1.0):
+                # LOGIC FOR DB
+                print(f"""
+                      Adding page to DB: {page_title} (ID: {page_id})
+                      """)
+                pass
+        
+        print(json_response)
+        #return {page_id,parsed_response['message']['content']} if parsed_response else {} #type: ignore
 
     # print(response_data['message']['content'])
         
 call_contextual_agent(metadata) # type: ignore
+
+'''
+Example response from 2 pages:
+{
+  "relevance_score": 0.95,
+  "currency_score": 1.0
+}
+{
+  "relevance_score": 1.0,
+  "currency_score": 1.0
+}
+
+# Add a sample validated URL
+print("Adding sample validated URL...")
+url_data = db_manager.add_validated_url(
+    url="https://docs.python.org/3/",
+    title="Python Documentation",
+    content_hash="sample_hash_123",
+    last_modified=datetime.now(),
+    ctx_relevance_score=0.95,
+    ctx_currency_score=0.98,
+    page_metadata={
+        "language": "en",
+        "category": "documentation",
+        "version": "3.12"
+    }
+)
+'''

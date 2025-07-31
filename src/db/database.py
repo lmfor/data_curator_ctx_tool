@@ -8,7 +8,7 @@ from typing import List, Optional, Dict
 from datetime import datetime
 import logging
 
-from .models import Base, ValidatedURL, ScrapingRun, ValidationLog
+from models import Base, ValidatedURL, ScrapingRun, ValidationLog
 
 # Load environment variables
 load_dotenv()
