@@ -6,6 +6,14 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional, Any, Tuple
 
+'''
+> ZenML
+> Connect md
+> Retriev context from ctxl agent + look @ other metrics
+> Categorize 
+> Modular calls / TDC API
+'''
+
 # Add src directory to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 src_path = os.path.join(project_root, 'src')
@@ -57,7 +65,7 @@ class ContextualValidator:
         SYSTEM PROMPT:
         You are to give a score from 0 to 1 for the following. Make sure your score is as accurate as you can make it to be.
         
-        1. How relevant the PAGE INFO is to anything V93/St8
+        1. How relevant the PAGE INFO is to anything V93/SmarTest8
         2. How up to date the information is.
         
         Naturally, if the content you are prompted with is newer/more current than your knowledge cutoff date, then the currency score should be 1.0.

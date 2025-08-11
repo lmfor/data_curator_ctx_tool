@@ -1,0 +1,14 @@
+{
+  "cookies": [
+    {
+      "domain": "weshare.advantest.com",
+      "httpOnly": true,
+      "name": "JSESSIONID",
+      "path": "/vs",
+      "sameSite": "None",
+      "secure": true,
+      "value": "16521ABE7FFE540EFBCCB48D137B7F8F"
+    }
+  ],
+  "current_url": "https://weshare.advantest.com/vs/"
+}

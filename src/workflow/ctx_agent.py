@@ -10,7 +10,7 @@ from typing import Dict, List, Any, Optional
 # Load environment variables
 load_dotenv()
 contextual_agent_id = os.getenv("CODEGENIE_TDC_ID") # interchangable agent ID 
-contextual_api_key = os.getenv("CONTEXTUAL_API_KEY")  # V93K ST8 CodeGenie A API Key
+contextual_api_key = os.getenv("CONTEXTUAL_API_KEY_PERSONAL")  # V93K ST8 CodeGenie A API Key
 BASE_URL = "https://api.app.contextual.ai/v1"
 
 def parse_contextual_response(response_json: Dict[str, Any]) -> Dict[str, Any]:
