@@ -16,7 +16,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import TimeoutException, WebDriverException, NoSuchElementException
 
-from .html_to_markdown import convert_html_file
+from .html_to_markdown import convert_html_file, html_to_markdown
 
 
 class WeShareMSSOScraper:
@@ -93,64 +93,146 @@ class WeShareMSSOScraper:
             username_field.clear()
             username_field.send_keys(email)
             
-            # Click Next button using exact XPath
-            next_button = self.driver.find_element(By.XPATH, '//*[@id="idSIButton9"]')
+            # Click Next button - wait for it to be clickable to avoid stale reference
+            print("Clicking Next button...")
+            next_button = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH, '//*[@id="idSIButton9"]'))
+            )
             next_button.click()
             
-            # Enter password using exact XPath
-            print("Entering password...")
+            # Wait for password page to load and enter password
+            print("Waiting for password page...")
             password_field = self.wait.until(
                 EC.visibility_of_element_located((By.XPATH, '//*[@id="i0118"]'))
             )
+            print("Entering password...")
             password_field.clear()
             password_field.send_keys(password)
             
-            # Click Sign in button
-            signin_button = self.driver.find_element(By.XPATH, '//*[@id="idSIButton9"]')
+            # Click Sign in button - wait for it to be clickable
+            print("Clicking Sign in button...")
+            signin_button = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH, '//*[@id="idSIButton9"]'))
+            )
             signin_button.click()
             
-            # Handle "Stay signed in?" prompt
-            try:
-                stay_signed_in = WebDriverWait(self.driver, 10).until(
-                    EC.element_to_be_clickable((By.XPATH, '//*[@id="idSIButton9"]'))
-                )
-                stay_signed_in.click()
-                print("Clicked 'Stay signed in'")
-            except TimeoutException:
-                print("No 'Stay signed in' prompt found, continuing...")
+            # Handle potential MFA or "Stay signed in?" prompts
+            print("Handling post-login prompts...")
+            max_attempts = 3  # Reduced from 5 to avoid getting stuck
             
-            print("Waiting for redirect back to WeShare...")
-            self.wait.until(
-                lambda driver: self.base_url in driver.current_url and 
-                              "login" not in driver.current_url.lower()
-            )
+            for attempt in range(max_attempts):
+                try:
+                    time.sleep(3)  # Give page time to load
+                    current_url = self.driver.current_url
+                    
+                    # Check if we're back at WeShare
+                    if self.base_url in current_url and "login" not in current_url.lower():
+                        print("✅ Successfully redirected to WeShare!")
+                        self.authenticated = True
+                        return True
+                    
+                    print(f"  🔍 Current URL: {current_url}")
+                    
+                    # Check for "Stay signed in?" prompt
+                    try:
+                        # Look for the text content to determine what button this is
+                        stay_button = self.driver.find_element(By.XPATH, '//*[@id="idSIButton9"]')
+                        button_text = stay_button.get_attribute("value") or stay_button.text
+                        
+                        if button_text and ("yes" in button_text.lower() or "stay" in button_text.lower()):
+                            stay_button.click()
+                            print("✅ Clicked 'Stay signed in'")
+                            time.sleep(2)
+                            continue
+                    except (NoSuchElementException, TimeoutException):
+                        pass
+                    
+                    # Check for MFA prompts
+                    current_url_lower = current_url.lower()
+                    if any(keyword in current_url_lower for keyword in ["mfa", "authenticator", "verify", "approval"]):
+                        print("🔐 MFA/Approval prompt detected. Please complete it in the browser...")
+                        print("⏰ Waiting up to 60 seconds for completion...")
+                        
+                        # Wait for user to complete MFA/approval
+                        try:
+                            mfa_wait = WebDriverWait(self.driver, 60)  # 1 minute
+                            mfa_wait.until(
+                                lambda driver: self.base_url in driver.current_url and 
+                                              "login" not in driver.current_url.lower()
+                            )
+                            print("✅ MFA/Approval completed successfully!")
+                            self.authenticated = True
+                            return True
+                        except TimeoutException:
+                            print("⏰ Timeout waiting for MFA/approval completion")
+                            # Don't return False yet, check if user wants to continue manually
+                            break
+                    
+                    # If we're still here after the attempt, continue to next iteration
+                    if attempt < max_attempts - 1:
+                        print(f"  ⏳ Attempt {attempt + 1}: Still processing authentication...")
+                    
+                except Exception as e:
+                    print(f"  ⚠️  Error in attempt {attempt + 1}: {e}")
+                    if attempt == max_attempts - 1:
+                        break
             
-            # Check if we're back at WeShare
-            print(f"Current URL after authentication: {self.driver.current_url}")
+            # If we get here, automatic authentication didn't complete
+            print("\n🔧 Automatic authentication flow didn't complete successfully")
+            print(f"Current URL: {self.driver.current_url}")
             
-            if self.base_url in self.driver.current_url and "login" not in self.driver.current_url.lower():
+            # Check if user is actually already at WeShare
+            if self.base_url in self.driver.current_url:
+                print("🎉 You appear to be at WeShare already!")
                 self.authenticated = True
-                print("Successfully authenticated with Microsoft SSO")
                 return True
+            
+            # Manual override option
+            print("\nℹ️  The browser window should be open. Please check if:")
+            print("   1. You're already logged into WeShare")
+            print("   2. There's an MFA prompt that needs completion")
+            print("   3. There's an approval/permission dialog")
+            
+            manual_continue = input("\nAre you at the WeShare main page now? (y/n): ").strip().lower()
+            if manual_continue == 'y':
+                # Verify by navigating to WeShare to double-check
+                try:
+                    self.driver.get(self.base_url)
+                    time.sleep(3)
+                    
+                    if self.base_url in self.driver.current_url and "login" not in self.driver.current_url.lower():
+                        print("✅ Confirmed: Successfully at WeShare!")
+                        self.authenticated = True
+                        return True
+                    else:
+                        print("❌ Still not at WeShare main page")
+                        return False
+                except Exception as e:
+                    print(f"❌ Error verifying WeShare access: {e}")
+                    return False
             else:
-                print("Login may have failed - not at expected URL")
+                print("❌ Authentication incomplete")
                 return False
                 
         except TimeoutException as e:
-            print(f"Timeout during authentication: {e}")
+            print(f"⏰ Timeout during authentication: {e}")
             print(f"Current URL: {self.driver.current_url}")
             return False
         except Exception as e:
-            print(f"Authentication error: {e}")
+            print(f"❌ Authentication error: {e}")
             print(f"Current URL: {self.driver.current_url}")
             return False
 
     def scrape_hierarchical_pages(self, start_url: str, output_dir: str = "scraped_content") -> List[Dict[str, str]]:
         """
+        Scrape hierarchical pages with enhanced markdown integration.
+        
         Args:
             start_url (str): Starting URL (like your Tips & Tricks page)
             output_dir (str): Directory to save scraped content
             
+        Returns:
+            List[Dict]: List of page data with markdown content in the 'content' field
         """
         if not self.authenticated:
             print("Not authenticated. Please login first.")
@@ -169,77 +251,91 @@ class WeShareMSSOScraper:
                     EC.visibility_of_element_located((By.XPATH, '//*[@id="child_ul41468043-0"]'))
                 )
             except TimeoutException:
-                # Try alt selectors for dif page structures
+                # Try alternative selectors for different page structures
                 alternative_selectors = [
                     "//ul[contains(@id, 'child_ul')]",
                     "//div[@class='wiki-content']//ul",
                     "//div[@id='content']//ul",
-                    "//ul[contains(@class, 'content-tree')]"
+                    "//ul[contains(@class, 'content-tree')]",
+                    "//div[contains(@class, 'page-tree')]//ul"
                 ]
                 
                 list_element = None
                 for selector in alternative_selectors:
                     try:
                         list_element = self.driver.find_element(By.XPATH, selector)
+                        print(f"Found hierarchical list using selector: {selector}")
                         break
                     except NoSuchElementException:
                         continue
                 
                 if not list_element:
                     print("Could not find hierarchical list on the page")
+                    print("Available elements on page:")
+                    # Debug: show some elements that might be the list
+                    try:
+                        all_uls = self.driver.find_elements(By.TAG_NAME, "ul")
+                        for i, ul in enumerate(all_uls[:5]):  # Show first 5 UL elements
+                            print(f"  UL {i}: class='{ul.get_attribute('class')}', id='{ul.get_attribute('id')}'")
+                    except:
+                        pass
                     return []
-            
 
+            # Extract all page links from the hierarchy
             list_items = list_element.find_elements(By.TAG_NAME, "li")
             page_data = self._expand_and_scrape(list_items)
             
             print(f"Found {len(page_data)} pages to scrape")
             
-            # Scrape each page
+            if not page_data:
+                print("No pages found in hierarchy. Check if the page structure has changed.")
+                return []
+            
+            # Scrape each page with enhanced content processing
             scraped_content = []
             for i, (href, title) in enumerate(page_data):
                 try:
                     print(f"Scraping page {i+1}/{len(page_data)}: {title}")
-                    content = self._scrape_single_page(href, title)
+                    content = self._scrape_single_page_enhanced(href, title, output_dir)
                     
                     if content:
-
-                        filename = f"page_{self.current_id:04d}_{self._clean_filename(title)}.html"
-                        html_path = Path(output_dir) / filename
-                        
-                        with open(html_path, 'w', encoding='utf-8') as f:
-                            f.write(content['content'])
-                        
-
-                        md_path = html_path.with_suffix('.md')
-                        try:
-                            convert_html_file(str(html_path), str(md_path))
-                            content['markdown_path'] = str(md_path)
-                            print(f"  ✓ Converted to markdown: {md_path}")
-                        except Exception as e:
-                            print(f"  ✗ Error converting to markdown: {e}")
-                        
-                        content['html_path'] = str(html_path)
                         scraped_content.append(content)
                         self.current_id += 1
                         
-                        time.sleep(2) # respect delay !
+                        # Progress indicator
+                        if (i + 1) % 10 == 0:
+                            print(f"  📊 Progress: {i + 1}/{len(page_data)} pages processed")
+                        
+                        time.sleep(2)  # Respect rate limits
                     
                 except Exception as e:
                     print(f"Error scraping page {title}: {e}")
                     continue
             
+            # Save comprehensive metadata with markdown content
             metadata_path = Path(output_dir) / "metadata.json"
             with open(metadata_path, 'w', encoding='utf-8') as f:
-                json.dump(scraped_content, f, indent=2)
+                json.dump(scraped_content, f, indent=2, ensure_ascii=False)
+            
+            # Create summary report
+            self._create_scraping_summary(scraped_content, output_dir)
+            
+            print(f"\n✅ Scraping completed!")
+            print(f"📄 Total pages scraped: {len(scraped_content)}")
+            print(f"📁 Output directory: {output_dir}")
+            print(f"📊 Metadata saved: {metadata_path}")
+            print(f"💡 Metadata.json now contains markdown content in the 'content' field")
             
             return scraped_content
             
         except Exception as e:
             print(f"Error in hierarchical scraping: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
     def _expand_and_scrape(self, items):
+        """Enhanced hierarchy expansion with better error handling."""
         item_data = []
         for item in items:
             try:
@@ -249,40 +345,156 @@ class WeShareMSSOScraper:
                     # Use the second <a> element that contains the title and href
                     anchor = anchors[1]
                     href = anchor.get_attribute("href")
-                    title = anchor.text
-                    if href and title:
+                    title = anchor.text.strip()
+                    
+                    # Validate URL and title
+                    if href and title and self.base_url in href:
                         item_data.append((href, title))
+                        print(f"  📄 Found page: {title}")
                     
                     try:
-                        # Click drop-down toggle
+                        # Click drop-down toggle to expand children
                         toggle = anchors[0]
-                        toggle.click()
-                        time.sleep(1)  # Wait for expansion
-                        
-                        # Recursively scrape children <li> elements
-                        try:
-                            child_list = item.find_element(By.TAG_NAME, "ul")
-                            child_items = child_list.find_elements(By.TAG_NAME, "li")
-                            item_data.extend(self._expand_and_scrape(child_items))
-                        except NoSuchElementException:
-                            pass  # No children found
+                        if toggle.get_attribute("class") and "icon" in toggle.get_attribute("class"):
+                            toggle.click()
+                            time.sleep(1)  # Wait for expansion
                             
+                            # Recursively scrape children <li> elements
+                            try:
+                                child_list = item.find_element(By.TAG_NAME, "ul")
+                                child_items = child_list.find_elements(By.TAG_NAME, "li")
+                                if child_items:
+                                    print(f"  🔄 Expanding {len(child_items)} children of '{title}'")
+                                    item_data.extend(self._expand_and_scrape(child_items))
+                            except NoSuchElementException:
+                                pass  # No children found
+                                
                     except Exception as e:
-                        print(f"Could not expand item {title}: {e}")
+                        print(f"  ⚠️  Could not expand item '{title}': {e}")
                 
                 elif len(anchors) == 1:
                     # Use the first and only <a> element
                     anchor = anchors[0]
                     href = anchor.get_attribute("href")
-                    title = anchor.text
-                    if href and title:
+                    title = anchor.text.strip()
+                    
+                    # Validate URL and title
+                    if href and title and self.base_url in href:
                         item_data.append((href, title))
+                        print(f"  📄 Found page: {title}")
                         
             except Exception as e:
-                print(f"Error processing list item: {e}")
+                print(f"  ❌ Error processing list item: {e}")
                 continue
         
         return item_data
+
+    def _scrape_single_page_enhanced(self, href: str, title: str, output_dir: str) -> Optional[Dict[str, str]]:
+        """
+        Enhanced single page scraping with markdown stored in content field.
+        
+        IMPORTANT: This method now stores markdown content in the 'content' field
+        of the returned dictionary to ensure metadata.json contains markdown.
+        """
+        try:
+            # Navigate to the page
+            self.driver.get(href)
+            
+            # Extract breadcrumbs
+            breadcrumbs = []
+            try:
+                breadcrumb_elements = self.driver.find_elements(
+                    By.XPATH,
+                    "//content[@tag='breadcrumbs']//ol[@id='quickedit-breadcrumbs']/li/span/a"
+                )
+                breadcrumbs = [elem.get_attribute("innerText").strip() for elem in breadcrumb_elements if elem.get_attribute("innerText")]
+            except Exception:
+                print(f"  ⚠️  Could not get breadcrumbs for {title}")
+            
+            breadcrumb_path = " > ".join(breadcrumbs) if breadcrumbs else ""
+            
+            # Try to access View Source for cleaner content
+            html_content = ""
+            try:
+                # Click the 3 dots menu button
+                menu_button = self.wait.until(
+                    EC.element_to_be_clickable((By.XPATH, '//*[@id="action-menu-link"]'))
+                )
+                menu_button.click()
+                
+                # Click View Source
+                view_source = self.driver.find_element(By.XPATH, '//*[@id="action-view-source-link"]')
+                view_source_href = view_source.get_attribute("href")
+                self.driver.get(view_source_href)
+                
+                html_content = self.driver.page_source
+                print(f"  ✅ Retrieved View Source content")
+                
+            except Exception as e:
+                print(f"  ⚠️  Could not access View Source for {title}, using page content: {e}")
+                # Fallback to regular page content
+                html_content = self.driver.page_source
+            
+            # Extract last modified information with timeout
+            last_modified_info = self._extract_last_modified_with_timeout(html_content, timeout=3.0)
+            
+            # Convert HTML to markdown content - THIS IS THE KEY PART
+            markdown_content = ""
+            try:
+                markdown_content = html_to_markdown(html_content)
+                print(f"  📝 Converted to markdown ({len(markdown_content)} characters)")
+            except Exception as e:
+                print(f"  ❌ Error converting to markdown: {e}")
+                # If conversion fails, try to extract text content as fallback
+                try:
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(html_content, 'html.parser')
+                    markdown_content = soup.get_text(separator='\n', strip=True)
+                    print(f"  📝 Fallback: Extracted plain text ({len(markdown_content)} characters)")
+                except:
+                    markdown_content = title  # Last resort: at least save the title
+            
+            # Create result object with MARKDOWN in the content field
+            result = {
+                'id': f"{self.current_id:04d}",
+                'url': href,
+                'title': title,
+                'content': markdown_content,  # *** STORING MARKDOWN HERE FOR METADATA.JSON ***
+                'markdown_content': markdown_content,  # Keep for compatibility
+                'breadcrumbs': breadcrumb_path,
+                'timestamp': time.time(),
+                'formatted_date': datetime.now().strftime('%m/%d/%y')
+            }
+            
+            # Add last modified info if found
+            if last_modified_info:
+                result['last_modified'] = last_modified_info
+                print(f"  📅 Last modified: {last_modified_info.get('date', 'Unknown date')} by {last_modified_info.get('user', 'Unknown user')}")
+            
+            # Save files - HTML file for reference, markdown file for human reading
+            filename = f"page_{self.current_id:04d}_{self._clean_filename(title)}"
+            
+            # Still save HTML file for reference/debugging
+            html_path = Path(output_dir) / f"{filename}.html"
+            with open(html_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)  # Save original HTML to file
+            result['html_path'] = str(html_path)
+            
+            # Save markdown file
+            if markdown_content:
+                md_path = Path(output_dir) / f"{filename}.md"
+                with open(md_path, 'w', encoding='utf-8') as f:
+                    f.write(markdown_content)
+                result['markdown_path'] = str(md_path)
+                print(f"  📄 Saved markdown: {md_path.name}")
+            
+            return result
+            
+        except Exception as e:
+            print(f"  ❌ Error scraping single page {title}: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
     def _extract_last_modified_with_timeout(self, content: str, timeout: float = 3.0) -> Optional[Dict[str, str]]:
         """
@@ -344,86 +556,80 @@ class WeShareMSSOScraper:
                 result = future.result(timeout=timeout)
                 return result
             except FutureTimeoutError:
-                print(f"  Timeout after {timeout} seconds searching for last modified - continuing...")
+                print(f"  ⏱️  Timeout after {timeout} seconds searching for last modified - continuing...")
                 return None
             except Exception as e:
-                print(f"  Error extracting last modified: {e}")
+                print(f"  ❌ Error extracting last modified: {e}")
                 return None
-
-    def _scrape_single_page(self, href: str, title: str) -> Optional[Dict[str, str]]:
-        try:
-            # Navigate to the page
-            self.driver.get(href)
-            
-            breadcrumbs = []
-            try:
-                breadcrumb_elements = self.driver.find_elements(  # Get breadcrumb path
-                    By.XPATH,
-                    "//content[@tag='breadcrumbs']//ol[@id='quickedit-breadcrumbs']/li/span/a"
-                )
-                breadcrumbs = [elem.get_attribute("innerText") for elem in breadcrumb_elements]
-            except Exception:
-                print(f"Could not get breadcrumbs for {title}")
-            
-            breadcrumb_path = " > ".join(breadcrumbs) if breadcrumbs else ""
-            
-            # Try to access View Source 
-            try:
-                # Click  the 3 dots menu button
-                menu_button = self.wait.until(
-                    EC.element_to_be_clickable((By.XPATH, '//*[@id="action-menu-link"]'))
-                )
-                menu_button.click()
-                
-                # Click view Source
-                view_source = self.driver.find_element(By.XPATH, '//*[@id="action-view-source-link"]')
-                view_source_href = view_source.get_attribute("href")
-                self.driver.get(view_source_href)
-                
-                content = self.driver.page_source
-                
-            except Exception as e:
-                print(f"Could not access View Source for {title}, using page content: {e}")
-                # fallback to regular page content
-                content = self.driver.page_source
-            
-            # Extract last modified information with timeout
-            last_modified_info = self._extract_last_modified_with_timeout(content, timeout=3.0)
-            
-            result = {
-                'id': f"{self.current_id:04d}",
-                'url': href,
-                'title': title,
-                'content': content,
-                'breadcrumbs': breadcrumb_path,
-                'timestamp': time.time(),
-                'formatted_date': datetime.now().strftime('%m/%d/%y')
-            }
-            
-            # Add last modified info if found
-            if last_modified_info:
-                result['last_modified'] = last_modified_info
-                print(f"  Found last modified: {last_modified_info.get('date', 'Unknown date')} by {last_modified_info.get('user', 'Unknown user')}")
-            
-            return result
-            
-        except Exception as e:
-            print(f"Error scraping single page {title}: {e}")
-            return None
 
     def _clean_filename(self, title: str) -> str:
+        """Clean filename with better handling."""
         import re
-        cleaned = re.sub(r'[<>:"/\\|?*]', '_', title) # Remove invalid filename characters & Limit length
-        return cleaned[:50]
+        # Remove invalid filename characters & limit length
+        cleaned = re.sub(r'[<>:"/\\|?*]', '_', title)
+        # Remove multiple underscores
+        cleaned = re.sub(r'_{2,}', '_', cleaned)
+        # Remove leading/trailing underscores
+        cleaned = cleaned.strip('_')
+        return cleaned[:100]  # Increased length limit
+
+    def _create_scraping_summary(self, scraped_content: List[Dict], output_dir: str):
+        """Create a summary report of the scraping results."""
+        try:
+            summary = {
+                'scraping_timestamp': datetime.now().isoformat(),
+                'total_pages': len(scraped_content),
+                'pages_with_markdown': sum(1 for page in scraped_content if page.get('markdown_content')),
+                'pages_with_last_modified': sum(1 for page in scraped_content if page.get('last_modified')),
+                'content_type': 'MARKDOWN',  # Indicate that content field contains markdown
+                'total_markdown_size': sum(len(page.get('content', '')) for page in scraped_content),
+                'breadcrumb_distribution': {},
+                'file_paths': {
+                    'metadata': 'metadata.json',
+                    'html_files': [page.get('html_path', '') for page in scraped_content],
+                    'markdown_files': [page.get('markdown_path', '') for page in scraped_content if page.get('markdown_path')]
+                }
+            }
+            
+            # Analyze breadcrumb distribution
+            for page in scraped_content:
+                breadcrumbs = page.get('breadcrumbs', '')
+                if breadcrumbs:
+                    root = breadcrumbs.split(' > ')[0] if ' > ' in breadcrumbs else breadcrumbs
+                    summary['breadcrumb_distribution'][root] = summary['breadcrumb_distribution'].get(root, 0) + 1
+            
+            # Calculate average content size
+            if scraped_content:
+                summary['average_content_size'] = round(summary['total_markdown_size'] / len(scraped_content))
+                summary['estimated_total_tokens'] = round(summary['total_markdown_size'] / 4)
+            
+            # Save summary
+            summary_path = Path(output_dir) / "scraping_summary.json"
+            with open(summary_path, 'w', encoding='utf-8') as f:
+                json.dump(summary, f, indent=2, ensure_ascii=False)
+            
+            print(f"\n📊 Scraping Summary:")
+            print(f"   Total pages: {summary['total_pages']}")
+            print(f"   Pages with markdown: {summary['pages_with_markdown']}")
+            print(f"   Content type in metadata.json: {summary['content_type']}")
+            print(f"   Average content size: {summary.get('average_content_size', 0):,} characters")
+            print(f"   Estimated tokens: {summary.get('estimated_total_tokens', 0):,}")
+            print(f"   Summary saved: {summary_path}")
+            
+        except Exception as e:
+            print(f"Error creating summary: {e}")
 
     def scrape_urls(self, urls: List[str], output_dir: str = "scraped_content") -> List[Dict[str, str]]:
-        
-        # 
         """
+        Scrape individual URLs with markdown integration.
+        NOTE: This method also stores markdown in the content field for consistency.
+        
         Args:
             urls (List[str]): List of URLs to scrape
             output_dir (str): Directory to save scraped content
             
+        Returns:
+            List[Dict]: List of scraped page data with markdown in content field
         """
         if not self.authenticated:
             print("Not authenticated. Please login first.")
@@ -442,38 +648,13 @@ class WeShareMSSOScraper:
                 self.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
                 time.sleep(3)
                 
-                # Extract content
-                content = {
-                    'id': f"{i:04d}",
-                    'url': url,
-                    'title': self.driver.title,
-                    'content': self.driver.page_source,
-                    'timestamp': time.time()
-                }
+                # Extract content using enhanced method
+                title = self.driver.title
+                content = self._scrape_single_page_enhanced(url, title, output_dir)
                 
-                # Extract last modified information
-                last_modified_info = self._extract_last_modified_with_timeout(content['content'], timeout=3.0)
-                if last_modified_info:
-                    content['last_modified'] = last_modified_info
-                    print(f"  Found last modified: {last_modified_info.get('date', 'Unknown date')} by {last_modified_info.get('user', 'Unknown user')}")
-                
-                # Save files
-                filename = f"page_{i:04d}_{self._clean_filename(content['title'])}.html"
-                html_path = Path(output_dir) / filename
-                
-                with open(html_path, 'w', encoding='utf-8') as f:
-                    f.write(content['content'])
-                
-                # --> MD
-                md_path = html_path.with_suffix('.md')
-                try:
-                    convert_html_file(str(html_path), str(md_path))
-                    content['markdown_path'] = str(md_path)
-                except Exception as e:
-                    print(f"Error converting to markdown: {e}")
-                
-                content['html_path'] = str(html_path)
-                scraped_content.append(content)
+                if content:
+                    content['id'] = f"{i:04d}"
+                    scraped_content.append(content)
                 
                 time.sleep(3)
                 
@@ -481,10 +662,13 @@ class WeShareMSSOScraper:
                 print(f"Error processing {url}: {e}")
                 continue
         
-        
-        metadata_path = Path(output_dir) / "metadata.json" # save metadata
+        # Save metadata with markdown content
+        metadata_path = Path(output_dir) / "metadata.json"
         with open(metadata_path, 'w', encoding='utf-8') as f:
-            json.dump(scraped_content, f, indent=2)
+            json.dump(scraped_content, f, indent=2, ensure_ascii=False)
+        
+        # Create summary
+        self._create_scraping_summary(scraped_content, output_dir)
         
         return scraped_content
 

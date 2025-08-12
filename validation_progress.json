@@ -1,0 +1,21 @@
+{
+  "next_index": 2,
+  "timestamp": "2025-08-12T09:52:23.836964",
+  "results": {
+    "processed": 2,
+    "validated": 1,
+    "saved": 1,
+    "errors": 0,
+    "skipped": 1,
+    "details": [
+      {
+        "index": 1,
+        "title": "LMT (Local Monitoring Tool)",
+        "id": "0001",
+        "relevance_score": 0.9,
+        "currency_score": 1.0,
+        "validated": true
+      }
+    ]
+  }
+}

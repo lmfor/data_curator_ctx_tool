@@ -1,179 +1,186 @@
-import sys
-import os
-import json
 import requests
-from pathlib import Path
+import json
+import os
+from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
-from typing import Dict, List, Any, Optional
-
 
 # Load environment variables
 load_dotenv()
-contextual_agent_id = os.getenv("CODEGENIE_TDC_ID") # interchangable agent ID 
-contextual_api_key = os.getenv("CONTEXTUAL_API_KEY_PERSONAL")  # V93K ST8 CodeGenie A API Key
+
+# Configuration
 BASE_URL = "https://api.app.contextual.ai/v1"
 
-def parse_contextual_response(response_json: Dict[str, Any]) -> Dict[str, Any]:
-    # Extract message information
-    message = response_json.get("message", {})
-    message_data = {
-        "content": message.get("content", ""),
-        "role": message.get("role", "")
+def query_contextual_agent(prompt: str, conversation_history: Optional[List[Dict]] = None) -> Optional[Dict[str, Any]]:
+    """
+    Query the contextual agent with proper message structure.
+    
+    Args:
+        prompt: The user's message/prompt
+        conversation_history: Optional list of previous messages in the conversation
+    
+    Returns:
+        Response data from the API or None if error
+    """
+    
+    # Get API key and agent ID from environment
+    api_key = os.getenv("CONTEXTUAL_API_KEY_PERSONAL")
+    agent_id = os.getenv("CODEGENIE_A_ID")
+    
+    if not api_key:
+        raise ValueError("CONTEXTUAL_API_KEY_PERSONAL environment variable not set")
+    
+    if not agent_id:
+        raise ValueError("CODEGENIE_A_ID environment variable not set")
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
     }
     
-    # Extract retrieval contents with all metadata
-    retrieval_contents = []
-    for item in response_json.get("retrieval_contents", []):
-        retrieval_item = {
-            "custom_metadata": item.get("custom_metadata"),
-            "custom_metadata_config": item.get("custom_metadata_config"),
-            "number": item.get("number"),
-            "type": item.get("type"),
-            "format": item.get("format"),
-            "content_id": item.get("content_id"),
-            "doc_id": item.get("doc_id"),
-            "doc_name": item.get("doc_name"),
-            "page": item.get("page"),
-            "content_text": item.get("content_text"),
-            "url": item.get("url"),
-            "ctxl_metadata": item.get("ctxl_metadata"),
-            "score": item.get("score")
-        }
-        retrieval_contents.append(retrieval_item)
+    # Build messages array - REQUIRED format for the API
+    messages = conversation_history if conversation_history else []
     
-    # Extract attributions
-    attributions = []
-    for attr in response_json.get("attributions", []):
-        attribution = {
-            "start_idx": attr.get("start_idx"),
-            "end_idx": attr.get("end_idx"),
-            "content_ids": attr.get("content_ids", [])
-        }
-        attributions.append(attribution)
+    # Add the current user message
+    messages.append({
+        "role": "user",
+        "content": prompt
+    })
     
-    # Extract groundedness score (if present)
-    groundedness = response_json.get("groundedness_score")
-    groundedness_score = None
-    if groundedness:
-        groundedness_score = {
-            "start_idx": groundedness.get("start_idx"),
-            "end_idx": groundedness.get("end_idx"),
-            "content_ids": groundedness.get("content_ids", [])
-        }
-    
-    # Create the structured response dictionary
-    response_data = {
-        "conversation_id": response_json.get("conversation_id"),
-        "message_id": response_json.get("message_id"),
-        "message": message_data,
-        "retrieval_contents": retrieval_contents,
-        "attributions": attributions,
-        "groundedness_score": groundedness_score
-    }
-    
-    return response_data
-
-def query_contextual_agent(question: str, include_optional_fields: bool = False):
-    # Basic required structure
+    # Build the proper payload structure according to API docs
     payload = {
-        "messages": [
-            {
-                "content": question,
-                "role": "user"
-            }
-        ]
+        "messages": messages,  # REQUIRED: array of message objects
+        "stream": False,       # We want non-streamed responses
+        # Optional: Add these if needed
+        # "include_retrieval_content_text": False,
+        # "retrievals_only": False,
     }
     
-    # Add optional fields if needed
-    if include_optional_fields:
-        payload.update({
-            "stream": False,
-            "conversation_id": "",
-            "llm_model_id": "",
-            "structured_output": {
-                "type": "JSON",
-                "json_schema": {}
-            },
-            "documents_filters": {
-                "filters": [
-                    {
-                        "field": "field1",
-                        "operator": "equals",
-                        "value": "value1"
-                    }
-                ],
-                "operator": "AND"
-            }
-        }) #type: ignore
-    
-    response = requests.post(
-        f"{BASE_URL}/agents/{contextual_agent_id}/query",
-        json=payload,
-        headers={
-            "Authorization": f"Bearer {contextual_api_key}",
-            "Content-Type": "application/json"
-        }
-    )
-    
-    if response.status_code == 200:
-        return response.json()
-    else:
-        print(f"Error: {response.status_code}")
-        print(f"Response: {response.text}")
-        response.raise_for_status()
-
-
-if __name__ == "__main__":
-    # Query the agent
-    print("Starting...")
     try:
-        metadata_path = 'hierarchical_output/metadata.json'
-        with open(metadata_path, 'r') as f:
-            metadata = json.load(f)
-    except:
-        pass
-    page = metadata[0]
-    # print(page) # type: ignore
-    
-    page_title = page['title'] #type: ignore
-    page_id = page['id'] #type: ignore
-    page_date = page['formatted_date'] if 'formatted_date' in page else '' #type: ignore
-    page_content = page['content'] if 'content' in page else '' #type: ignore
-    page_breadcrumbs = page['breadcrumbs'] if 'breadcrumbs' in page else [] #type: ignore
-    
-    
-    response_data = query_contextual_agent(f"""
-                                               
-                                               SYSTEM PROMPT:
-                                               You are to give a score from 0 to 1 for the following. Make sure your score is as accurate as you can make it to be.
-                                               
-                                                  1. How relevant the PAGE INFO is to anything V93/St8
-                                                  2. How up to date the information is.
-                                                  
-                                                  
-                                                Naturally, if the content you are prompted with is newer/more current than your knowledge cutoff date, then the currency score should be 1.0.
-                                               
-                                                ONLY REUTRN: You will return a JSON OBJECT with the following structure:
-                                                  {{
-                                                    "relevance_score": <float>,
-                                                    "currency_score": <float>
-                                                    }}
-                                                .
-                                               NOTES: The date will be given to you in the format of MM/DD/YY. Do not return any other information, just the JSON object.
-                                               -----
-                                               PAGE INFO/PROMPT: Page Title: {page_title}, 
-                                                                 Page Content: {page_content}, 
-                                                                 Page Breadcrumbs: {page_breadcrumbs}, 
-                                                                 Page Date: {page_date}""")
+        response = requests.post(
+            f"{BASE_URL}/agents/{agent_id}/query",
+            headers=headers,
+            json=payload,
+            timeout=30  # Add timeout
+        )
         
+        # Log the status and response for debugging
+        print(f"  📡 API Response: {response.status_code}")
         
-    
-    if response_data:
-        parsed_response = parse_contextual_response(response_data)
-        print(parsed_response['message']['content']) if parsed_response else None
-    
-        # Example: Print additional information if needed
-        # print(f"\nConversation ID: {response_data['conversation_id']}")
-        # print(f"Number of retrieved documents: {len(response_data['retrieval_contents'])}")
-        # print(f"Top document: {response_data['retrieval_contents'][0]['doc_name'] if response_data['retrieval_contents'] else 'None'}")
+        # Debug logging for 422 errors
+        if response.status_code == 422:
+            print("  ❌ Request validation failed. Details:")
+            try:
+                error_detail = response.json()
+                print(f"  Error details: {json.dumps(error_detail, indent=2)}")
+            except:
+                print(f"  Raw response: {response.text}")
+            return None
         
+        # Handle different HTTP status codes
+        if response.status_code == 429:
+            # Rate limit exceeded - let the caller handle retry logic
+            error_detail = response.json() if response.content else {"detail": "Rate limit exceeded"}
+            print(f"  ⚠️ Rate limit exceeded: {error_detail}")
+            response.raise_for_status()  # This will raise an HTTPError
+            
+        elif response.status_code == 401:
+            print("  ❌ Authentication failed. Check your CONTEXTUAL_API_KEY_PERSONAL.")
+            return None
+            
+        elif response.status_code == 404:
+            print("  ❌ Agent not found. Check your CODEGENIE_A_ID.")
+            return None
+            
+        elif response.status_code >= 500:
+            print(f"  ❌ Server error ({response.status_code}). Try again later.")
+            return None
+            
+        # Raise for other HTTP errors
+        response.raise_for_status()
+        
+        # Parse JSON response
+        return response.json()
+        
+    except requests.exceptions.Timeout:
+        print("  ❌ Request timed out")
+        return None
+        
+    except requests.exceptions.ConnectionError:
+        print("  ❌ Connection error")
+        return None
+        
+    except requests.exceptions.HTTPError as e:
+        # Re-raise HTTP errors so caller can handle rate limiting
+        if e.response.status_code == 429:
+            raise e
+        print(f"  ❌ HTTP Error: {e}")
+        return None
+        
+    except requests.exceptions.RequestException as e:
+        print(f"  ❌ Request error: {e}")
+        return None
+        
+    except json.JSONDecodeError:
+        print("  ❌ Invalid JSON response")
+        return None
+
+
+def parse_contextual_response(response_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Parse the contextual agent response.
+    
+    The response structure typically includes:
+    - message: The generated response
+    - retrievals: Any retrieved context (if applicable)
+    - metadata: Additional response metadata
+    """
+    try:
+        if not response_data:
+            return None
+        
+        # The API response structure may vary, but typically includes:
+        # - A message or content field with the actual response
+        # - Potentially retrieval information if RAG is used
+        
+        # Return the full response for now - adjust based on actual API response structure
+        return response_data
+        
+    except (KeyError, TypeError) as e:
+        print(f"  ❌ Error parsing contextual response: {e}")
+        return None
+
+
+def test_agent_connection(test_prompt: str = "Hello, are you working?") -> bool:
+    """
+    Test the connection to the contextual agent.
+    
+    Args:
+        test_prompt: Simple test message to send
+    
+    Returns:
+        True if connection successful, False otherwise
+    """
+    print("🧪 Testing Contextual Agent connection...")
+    
+    try:
+        response = query_contextual_agent(test_prompt)
+        if response:
+            print("  ✅ Agent connection successful!")
+            print(response)
+            print(f"  Response preview: {str(response)[:200]}...")
+            return True
+        else:
+            print("  ❌ Agent connection failed - no response received")
+            return False
+    except Exception as e:
+        print(f"  ❌ Agent connection failed with error: {e}")
+        return False
+
+
+# Backward compatibility - keep the old function signature working
+def query_contextual_agent_simple(prompt: str) -> Optional[Dict[str, Any]]:
+    """
+    Simple wrapper for backward compatibility.
+    Converts a simple string prompt to the required message format.
+    """
+    return query_contextual_agent(prompt)
